@@ -1,32 +1,116 @@
-name: "Demo: Kiem tra Code Terraform"
+name: "Security Scan - Checkov"
 
 on:
-  pull_request: # Kích hoạt khi có Pull Request
+  pull_request:
     branches: [ main ]
+    paths:
+      - '**.tf'
+      - 'policies/**'
+      - '.github/workflows/main.yml'
   push:
     branches: [ main ]
+    paths:
+      - '**.tf'
+      - 'policies/**'
+  schedule:
+    - cron: '0 0 * * 0'  # Chạy hàng tuần vào Chủ nhật
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
 
 jobs:
   checkov-scan:
-    name: 'Checkov Scan'
+    name: 'Checkov Security Scan'
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Create reports directory
+      run: mkdir -p reports
+
     - name: Run Checkov Scan
+      id: checkov
       uses: bridgecrewio/checkov-action@v12
       with:
         # 1. Trỏ vào thư mục chứa code demo
         directory: demo/
-        
+
         # 2. Trỏ vào thư mục chứa "luật" custom
         external_checks_dir: policies/checkov/custom_rules
-        
-        # 3. Định dạng output
-        output_format: sarif
-        output_file_path: reports/checkov.sarif
-        
+
+        # 3. Định dạng output (nhiều formats)
+        output_format: cli,json,sarif
+        output_file_path: console,reports/checkov.json,reports/checkov.sarif
+
         # 4. Gây FAIL cho pipeline nếu có lỗi
         soft_fail: false
+
+        # 5. Framework cần quét
+        framework: terraform
+
+        # 6. Download external policies
+        download_external_modules: true
+      continue-on-error: true
+
+    - name: Upload Checkov results to GitHub Security
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: reports/checkov.sarif
+        category: checkov
+
+    - name: Upload Checkov JSON report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: checkov-report
+        path: reports/
+        retention-days: 30
+
+    - name: Comment PR with Checkov results
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          let summary = '#### Checkov Security Scan 🔒';
+
+          try {
+            const report = JSON.parse(fs.readFileSync('reports/checkov.json', 'utf8'));
+            const passed = report.summary?.passed || 0;
+            const failed = report.summary?.failed || 0;
+            const skipped = report.summary?.skipped || 0;
+
+            summary += `\n\n**Results:**\n`;
+            summary += `- ✅ Passed: ${passed}\n`;
+            summary += `- ❌ Failed: ${failed}\n`;
+            summary += `- ⏭️  Skipped: ${skipped}\n`;
+
+            if (failed > 0) {
+              summary += `\n⚠️  **Security issues detected!** Please review the findings.`;
+            } else {
+              summary += `\n✨ **No security issues found!**`;
+            }
+          } catch (error) {
+            summary += `\n\n⚠️  Could not parse results. Check workflow logs.`;
+          }
+
+          summary += `\n\n*Pusher: @${{ github.actor }}*`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          })
+
+    - name: Fail if security issues found
+      if: steps.checkov.outcome == 'failure'
+      run: |
+        echo "❌ Security scan failed. Please fix the issues before merging."
+        exit 1

@@ -1,0 +1,78 @@
+name: "Terraform CI - Validation & Format"
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+      - '.github/workflows/terraform-ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+      - '.github/workflows/terraform-ci.yml'
+
+jobs:
+  terraform-validate:
+    name: 'Terraform Validate & Format Check'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Terraform Format Check
+      id: fmt
+      run: |
+        echo "Checking Terraform format..."
+        terraform fmt -check -recursive -diff
+      continue-on-error: true
+
+    - name: Terraform Init (Demo)
+      id: init-demo
+      run: |
+        cd demo
+        terraform init -backend=false
+      continue-on-error: true
+
+    - name: Terraform Validate (Demo)
+      id: validate-demo
+      run: |
+        cd demo
+        terraform validate -no-color
+
+    - name: Comment PR with Results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+          #### Terraform Initialization ⚙️\`${{ steps.init-demo.outcome }}\`
+          #### Terraform Validation 🤖\`${{ steps.validate-demo.outcome }}\`
+
+          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: Fail if format check failed
+      if: steps.fmt.outcome == 'failure'
+      run: |
+        echo "❌ Terraform format check failed. Please run 'terraform fmt -recursive' locally."
+        exit 1
+
+    - name: Fail if validation failed
+      if: steps.validate-demo.outcome == 'failure'
+      run: |
+        echo "❌ Terraform validation failed."
+        exit 1
