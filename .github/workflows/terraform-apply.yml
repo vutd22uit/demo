@@ -1,0 +1,65 @@
+name: "Terraform Apply"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.tf'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'demo'
+        type: choice
+        options:
+          - demo
+          - staging
+          - production
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform-apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment || 'demo' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Terraform Init
+      id: init
+      run: |
+        cd demo
+        terraform init -backend=false
+
+    - name: Terraform Plan
+      id: plan
+      run: |
+        cd demo
+        terraform plan -no-color -out=tfplan
+
+    - name: Terraform Apply
+      id: apply
+      run: |
+        cd demo
+        terraform apply -auto-approve tfplan
+      # Uncomment when ready to apply changes automatically
+      # For now, this is a dry-run mode
+      if: false
+
+    - name: Apply Status
+      run: |
+        echo "✅ Terraform plan completed successfully"
+        echo "⚠️  Auto-apply is disabled for safety"
+        echo "To enable auto-apply, set the 'if' condition to true in terraform-apply.yml"
