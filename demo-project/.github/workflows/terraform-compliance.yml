@@ -1,0 +1,32 @@
+name: "Demo: Kiem tra Code Terraform"
+
+on:
+  pull_request: # Kích hoạt khi có Pull Request
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  checkov-scan:
+    name: 'Checkov Scan'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Checkov Scan
+      uses: bridgecrewio/checkov-action@v12
+      with:
+        # 1. Trỏ vào thư mục chứa code demo
+        directory: demo/
+        
+        # 2. Trỏ vào thư mục chứa "luật" custom
+        external_checks_dir: policies/checkov/custom_rules
+        
+        # 3. Định dạng output
+        output_format: sarif
+        output_file_path: reports/checkov.sarif
+        
+        # 4. Gây FAIL cho pipeline nếu có lỗi
+        soft_fail: false
