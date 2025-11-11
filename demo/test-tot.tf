@@ -1,4 +1,4 @@
-# FILE AN TOAN (DE SO SANH)
+
 resource "aws_security_group" "ssh_an_toan" {
   name = "demo-an-toan"
   ingress {
